@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -28,100 +27,82 @@ const subjects = [
 
 function getLocalDate() {
   const date = new Date();
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
 
-  return localDate.toISOString().slice(0, 10);
+  return `${year}-${month}-${day}`;
 }
 
 export default function StudyPlannerPage() {
   const [tasks, setTasks] = useState<StudyTask[]>([]);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Java");
-  const [taskDate, setTaskDate] = useState(getLocalDate);
-  const [selectedDate, setSelectedDate] = useState(getLocalDate);
+  const [taskDate, setTaskDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [datesReady, setDatesReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const supabase = createClient();
-
-  async function loadTasks() {
-    setLoading(true);
-    setError("");
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      setError("Please sign in to use your study planner.");
-      setTasks([]);
-      setLoading(false);
-      return;
-    }
-
-    const { data, error: fetchError } = await supabase
-      .from("study_tasks")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("task_date", selectedDate)
-      .order("created_at", { ascending: true });
-
-    if (fetchError) {
-      setError(
-        "Could not load tasks. Check that the study_tasks table and its policies exist."
-      );
-      setTasks([]);
-    } else {
-      setTasks((data ?? []) as StudyTask[]);
-    }
-
-    setLoading(false);
-  }
+  const [supabase] = useState(() => createClient());
 
   useEffect(() => {
+    const today = getLocalDate();
+    setTaskDate(today);
+    setSelectedDate(today);
+    setDatesReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!datesReady) return;
+
     let active = true;
 
     async function fetchTasks() {
       setLoading(true);
       setError("");
 
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
 
-      if (!active) return;
+        if (!active) return;
 
-      if (authError || !user) {
-        setError("Please sign in to use your study planner.");
+        if (authError || !user) {
+          setError("Please sign in to use your study planner.");
+          setTasks([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data, error: fetchError } = await supabase
+          .from("study_tasks")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("task_date", selectedDate)
+          .order("created_at", { ascending: true });
+
+        if (!active) return;
+
+        if (fetchError) {
+          setError(
+            "Could not load tasks. Check the study_tasks table and its Supabase policies."
+          );
+          setTasks([]);
+        } else {
+          setTasks((data ?? []) as StudyTask[]);
+        }
+      } catch {
+        if (!active) return;
+        setError("Could not load tasks. Please try again.");
         setTasks([]);
-        setLoading(false);
-        return;
+      } finally {
+        if (active) setLoading(false);
       }
-
-      const { data, error: fetchError } = await supabase
-        .from("study_tasks")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("task_date", selectedDate)
-        .order("created_at", { ascending: true });
-
-      if (!active) return;
-
-      if (fetchError) {
-        setError(
-          "Could not load tasks. Check the study_tasks table in Supabase."
-        );
-        setTasks([]);
-      } else {
-        setTasks((data ?? []) as StudyTask[]);
-      }
-
-      setLoading(false);
     }
 
     void fetchTasks();
@@ -129,7 +110,7 @@ export default function StudyPlannerPage() {
     return () => {
       active = false;
     };
-  }, [selectedDate, supabase]);
+  }, [selectedDate, datesReady, supabase]);
 
   async function addTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,44 +120,54 @@ export default function StudyPlannerPage() {
       return;
     }
 
+    if (!taskDate) {
+      setError("Please select a task date.");
+      return;
+    }
+
     setSaving(true);
     setError("");
     setMessage("");
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-      setError("Please sign in before adding tasks.");
-      setSaving(false);
-      return;
-    }
+      if (authError || !user) {
+        setError("Please sign in before adding tasks.");
+        return;
+      }
 
-    const { data, error: insertError } = await supabase
-      .from("study_tasks")
-      .insert({
-        user_id: user.id,
-        title: title.trim(),
-        subject,
-        task_date: taskDate,
-      })
-      .select("*")
-      .single();
+      const { data, error: insertError } = await supabase
+        .from("study_tasks")
+        .insert({
+          user_id: user.id,
+          title: title.trim(),
+          subject,
+          task_date: taskDate,
+          completed: false,
+        })
+        .select("*")
+        .single();
 
-    if (insertError) {
-      setError(insertError.message);
-    } else {
+      if (insertError) {
+        setError(insertError.message);
+        return;
+      }
+
       setTitle("");
       setMessage("Study task added successfully.");
 
       if (taskDate === selectedDate) {
         setTasks((previous) => [...previous, data as StudyTask]);
       }
+    } catch {
+      setError("Could not add the task. Please try again.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
   async function toggleTask(task: StudyTask) {
@@ -218,13 +209,20 @@ export default function StudyPlannerPage() {
       return;
     }
 
-    setTasks((previous) => previous.filter((task) => task.id !== taskId));
+    setTasks((previous) =>
+      previous.filter((task) => task.id !== taskId)
+    );
     setMessage("Task deleted.");
   }
 
-  const completedCount = tasks.filter((task) => task.completed).length;
+  const completedCount = tasks.filter(
+    (task) => task.completed
+  ).length;
+
   const progress =
-    tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100);
+    tasks.length === 0
+      ? 0
+      : Math.round((completedCount / tasks.length) * 100);
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-8">
@@ -255,7 +253,9 @@ export default function StudyPlannerPage() {
             <span className="text-slate-400">
               {completedCount} of {tasks.length} tasks completed
             </span>
-            <span className="font-semibold text-cyan-400">{progress}%</span>
+            <span className="font-semibold text-cyan-400">
+              {progress}%
+            </span>
           </div>
 
           <div
@@ -278,7 +278,10 @@ export default function StudyPlannerPage() {
 
           <form onSubmit={addTask} className="space-y-4">
             <div>
-              <label htmlFor="task-title" className="mb-2 block text-sm text-slate-300">
+              <label
+                htmlFor="task-title"
+                className="mb-2 block text-sm text-slate-300"
+              >
                 Task title
               </label>
               <input
@@ -294,7 +297,10 @@ export default function StudyPlannerPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label htmlFor="task-subject" className="mb-2 block text-sm text-slate-300">
+                <label
+                  htmlFor="task-subject"
+                  className="mb-2 block text-sm text-slate-300"
+                >
                   Subject
                 </label>
                 <select
@@ -312,7 +318,10 @@ export default function StudyPlannerPage() {
               </div>
 
               <div>
-                <label htmlFor="task-date" className="mb-2 block text-sm text-slate-300">
+                <label
+                  htmlFor="task-date"
+                  className="mb-2 block text-sm text-slate-300"
+                >
                   Task date
                 </label>
                 <input
@@ -321,6 +330,7 @@ export default function StudyPlannerPage() {
                   value={taskDate}
                   onChange={(event) => setTaskDate(event.target.value)}
                   required
+                  disabled={!datesReady}
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
                 />
               </div>
@@ -328,7 +338,7 @@ export default function StudyPlannerPage() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !datesReady}
               className="w-full rounded-lg bg-cyan-500 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {saving ? "Adding..." : "+ Add Task"}
@@ -345,27 +355,38 @@ export default function StudyPlannerPage() {
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
+              disabled={!datesReady}
               className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2"
             />
           </div>
 
           {error && (
-            <p role="alert" className="mb-4 rounded-lg bg-red-950 p-3 text-red-300">
+            <p
+              role="alert"
+              className="mb-4 rounded-lg bg-red-950 p-3 text-red-300"
+            >
               {error}
             </p>
           )}
 
           {message && (
-            <p role="status" className="mb-4 rounded-lg bg-emerald-950 p-3 text-emerald-300">
+            <p
+              role="status"
+              className="mb-4 rounded-lg bg-emerald-950 p-3 text-emerald-300"
+            >
               {message}
             </p>
           )}
 
           {loading ? (
-            <p className="py-8 text-center text-slate-400">Loading tasks...</p>
+            <p className="py-8 text-center text-slate-400">
+              Loading tasks...
+            </p>
           ) : tasks.length === 0 ? (
             <div className="py-10 text-center">
-              <p className="text-lg text-slate-300">No tasks for this date.</p>
+              <p className="text-lg text-slate-300">
+                No tasks for this date.
+              </p>
               <p className="mt-2 text-sm text-slate-500">
                 Add a task above to start your study plan.
               </p>
