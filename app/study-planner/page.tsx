@@ -48,15 +48,18 @@ export default function StudyPlannerPage() {
 
   const [supabase] = useState(() => createClient());
 
+  // Set today's date only after the component mounts in the browser.
   useEffect(() => {
     const today = getLocalDate();
+
     setTaskDate(today);
     setSelectedDate(today);
     setDatesReady(true);
   }, []);
 
+  // Load tasks for the selected date.
   useEffect(() => {
-    if (!datesReady) return;
+    if (!datesReady || !selectedDate) return;
 
     let active = true;
 
@@ -75,7 +78,6 @@ export default function StudyPlannerPage() {
         if (authError || !user) {
           setError("Please sign in to use your study planner.");
           setTasks([]);
-          setLoading(false);
           return;
         }
 
@@ -98,6 +100,7 @@ export default function StudyPlannerPage() {
         }
       } catch {
         if (!active) return;
+
         setError("Could not load tasks. Please try again.");
         setTasks([]);
       } finally {
@@ -112,6 +115,7 @@ export default function StudyPlannerPage() {
     };
   }, [selectedDate, datesReady, supabase]);
 
+  // Add a new study task.
   async function addTask(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -160,7 +164,7 @@ export default function StudyPlannerPage() {
       setTitle("");
       setMessage("Study task added successfully.");
 
-      if (taskDate === selectedDate) {
+      if (taskDate === selectedDate && data) {
         setTasks((previous) => [...previous, data as StudyTask]);
       }
     } catch {
@@ -170,49 +174,61 @@ export default function StudyPlannerPage() {
     }
   }
 
+  // Mark a task complete or incomplete.
   async function toggleTask(task: StudyTask) {
     setError("");
     setMessage("");
 
     const newCompleted = !task.completed;
 
-    const { error: updateError } = await supabase
-      .from("study_tasks")
-      .update({ completed: newCompleted })
-      .eq("id", task.id);
+    try {
+      const { error: updateError } = await supabase
+        .from("study_tasks")
+        .update({ completed: newCompleted })
+        .eq("id", task.id)
+        .eq("user_id", task.user_id);
 
-    if (updateError) {
+      if (updateError) {
+        setError("Could not update the task. Please try again.");
+        return;
+      }
+
+      setTasks((previous) =>
+        previous.map((item) =>
+          item.id === task.id
+            ? { ...item, completed: newCompleted }
+            : item
+        )
+      );
+    } catch {
       setError("Could not update the task. Please try again.");
-      return;
     }
-
-    setTasks((previous) =>
-      previous.map((item) =>
-        item.id === task.id
-          ? { ...item, completed: newCompleted }
-          : item
-      )
-    );
   }
 
+  // Delete a task.
   async function deleteTask(taskId: string) {
     setError("");
     setMessage("");
 
-    const { error: deleteError } = await supabase
-      .from("study_tasks")
-      .delete()
-      .eq("id", taskId);
+    try {
+      const { error: deleteError } = await supabase
+        .from("study_tasks")
+        .delete()
+        .eq("id", taskId);
 
-    if (deleteError) {
+      if (deleteError) {
+        setError("Could not delete the task. Please try again.");
+        return;
+      }
+
+      setTasks((previous) =>
+        previous.filter((task) => task.id !== taskId)
+      );
+
+      setMessage("Task deleted.");
+    } catch {
       setError("Could not delete the task. Please try again.");
-      return;
     }
-
-    setTasks((previous) =>
-      previous.filter((task) => task.id !== taskId)
-    );
-    setMessage("Task deleted.");
   }
 
   const completedCount = tasks.filter(
@@ -253,6 +269,7 @@ export default function StudyPlannerPage() {
             <span className="text-slate-400">
               {completedCount} of {tasks.length} tasks completed
             </span>
+
             <span className="font-semibold text-cyan-400">
               {progress}%
             </span>
@@ -274,7 +291,9 @@ export default function StudyPlannerPage() {
         </section>
 
         <section className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-          <h2 className="mb-5 text-xl font-semibold">Add a Study Task</h2>
+          <h2 className="mb-5 text-xl font-semibold">
+            Add a Study Task
+          </h2>
 
           <form onSubmit={addTask} className="space-y-4">
             <div>
@@ -284,6 +303,7 @@ export default function StudyPlannerPage() {
               >
                 Task title
               </label>
+
               <input
                 id="task-title"
                 value={title}
@@ -303,6 +323,7 @@ export default function StudyPlannerPage() {
                 >
                   Subject
                 </label>
+
                 <select
                   id="task-subject"
                   value={subject}
@@ -324,6 +345,7 @@ export default function StudyPlannerPage() {
                 >
                   Task date
                 </label>
+
                 <input
                   id="task-date"
                   type="date"
@@ -331,7 +353,7 @@ export default function StudyPlannerPage() {
                   onChange={(event) => setTaskDate(event.target.value)}
                   required
                   disabled={!datesReady}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 disabled:opacity-50"
                 />
               </div>
             </div>
@@ -356,7 +378,7 @@ export default function StudyPlannerPage() {
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
               disabled={!datesReady}
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2"
+              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 disabled:opacity-50"
             />
           </div>
 
@@ -387,6 +409,7 @@ export default function StudyPlannerPage() {
               <p className="text-lg text-slate-300">
                 No tasks for this date.
               </p>
+
               <p className="mt-2 text-sm text-slate-500">
                 Add a task above to start your study plan.
               </p>
@@ -418,6 +441,7 @@ export default function StudyPlannerPage() {
                     >
                       {task.title}
                     </p>
+
                     <p className="mt-1 text-sm text-slate-400">
                       {task.subject}
                     </p>
