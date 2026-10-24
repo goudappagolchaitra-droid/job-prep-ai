@@ -11,10 +11,20 @@ type StudyTask = {
   is_completed: boolean;
 };
 
+type DailyProgress = {
+  dateString: string;
+  label: string;
+  total: number;
+  completed: number;
+  percentage: number;
+};
+
 export default function StudyAnalyticsPage() {
   const [tasks, setTasks] = useState<StudyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [todayString, setTodayString] = useState("");
+  const [lastSevenDays, setLastSevenDays] = useState<DailyProgress[]>([]);
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -38,7 +48,9 @@ export default function StudyAnalyticsPage() {
         .eq("user_id", user.id)
         .order("task_date", { ascending: false });
 
-      if (queryError) throw queryError;
+      if (queryError) {
+        throw queryError;
+      }
 
       setTasks((data ?? []) as StudyTask[]);
     } catch (err) {
@@ -56,54 +68,69 @@ export default function StudyAnalyticsPage() {
     void loadTasks();
   }, [loadTasks]);
 
-  const completedTasks = tasks.filter((task) => task.is_completed).length;
+  useEffect(() => {
+    const formatDate = (date: Date) =>
+      [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ].join("-");
+
+    setTodayString(formatDate(new Date()));
+
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+
+      return {
+        dateString: formatDate(date),
+        label: date.toLocaleDateString("en-IN", {
+          weekday: "short",
+        }),
+      };
+    });
+
+    setLastSevenDays(
+      days.map((day) => {
+        const dailyTasks = tasks.filter(
+          (task) => task.task_date === day.dateString
+        );
+
+        const completed = dailyTasks.filter(
+          (task) => task.is_completed
+        ).length;
+
+        return {
+          ...day,
+          total: dailyTasks.length,
+          completed,
+          percentage:
+            dailyTasks.length === 0
+              ? 0
+              : Math.round((completed / dailyTasks.length) * 100),
+        };
+      })
+    );
+  }, [tasks]);
+
+  const completedTasks = tasks.filter(
+    (task) => task.is_completed
+  ).length;
+
   const pendingTasks = tasks.length - completedTasks;
+
   const completionRate =
     tasks.length === 0
       ? 0
       : Math.round((completedTasks / tasks.length) * 100);
 
-  const today = new Date();
-  const todayString = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
+  const todayTasks = tasks.filter(
+    (task) => task.task_date === todayString
+  );
 
-  const todayTasks = tasks.filter((task) => task.task_date === todayString);
   const todayCompleted = todayTasks.filter(
     (task) => task.is_completed
   ).length;
-
-  const lastSevenDays = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - index));
-
-    const dateString = [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-    ].join("-");
-
-    const dailyTasks = tasks.filter(
-      (task) => task.task_date === dateString
-    );
-
-    const completed = dailyTasks.filter(
-      (task) => task.is_completed
-    ).length;
-
-    return {
-      dateString,
-      label: date.toLocaleDateString("en-IN", { weekday: "short" }),
-      total: dailyTasks.length,
-      completed,
-      percentage:
-        dailyTasks.length === 0
-          ? 0
-          : Math.round((completed / dailyTasks.length) * 100),
-    };
-  });
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-white sm:px-8">
@@ -113,9 +140,11 @@ export default function StudyAnalyticsPage() {
             <p className="text-sm font-semibold text-cyan-400">
               YOUR LEARNING JOURNEY
             </p>
+
             <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
               Study Analytics
             </h1>
+
             <p className="mt-3 text-slate-400">
               Track your task completion and daily study consistency.
             </p>
@@ -138,6 +167,7 @@ export default function StudyAnalyticsPage() {
           >
             Open Study Planner →
           </Link>
+
           <Link
             href="/ai-study-plan"
             className="text-cyan-400 hover:underline"
@@ -156,7 +186,9 @@ export default function StudyAnalyticsPage() {
         )}
 
         {!error && loading && (
-          <p className="mt-8 text-slate-400">Loading your study data...</p>
+          <p className="mt-8 text-slate-400">
+            Loading your study data...
+          </p>
         )}
 
         {!loading && !error && (
@@ -165,17 +197,24 @@ export default function StudyAnalyticsPage() {
               <StatCard title="Total Tasks" value={tasks.length} />
               <StatCard title="Completed" value={completedTasks} />
               <StatCard title="Pending" value={pendingTasks} />
-              <StatCard title="Completion Rate" value={`${completionRate}%`} />
+              <StatCard
+                title="Completion Rate"
+                value={`${completionRate}%`}
+              />
             </section>
 
             <section className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold">Overall Progress</h2>
+                  <h2 className="text-xl font-bold">
+                    Overall Progress
+                  </h2>
+
                   <p className="mt-1 text-sm text-slate-400">
                     Completed tasks compared with all saved tasks.
                   </p>
                 </div>
+
                 <span className="text-2xl font-bold text-cyan-400">
                   {completionRate}%
                 </span>
@@ -201,7 +240,10 @@ export default function StudyAnalyticsPage() {
             </section>
 
             <section className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-6">
-              <h2 className="text-xl font-bold">Today&apos;s Progress</h2>
+              <h2 className="text-xl font-bold">
+                Today&apos;s Progress
+              </h2>
+
               <p className="mt-2 text-slate-400">
                 {todayCompleted} of {todayTasks.length} tasks completed today.
               </p>
@@ -226,7 +268,10 @@ export default function StudyAnalyticsPage() {
                       >
                         {task.is_completed ? "✓" : "○"}
                       </span>
-                      <span className="break-words">{task.task}</span>
+
+                      <span className="break-words">
+                        {task.task}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -235,6 +280,7 @@ export default function StudyAnalyticsPage() {
 
             <section className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-6">
               <h2 className="text-xl font-bold">Last 7 Days</h2>
+
               <p className="mt-2 text-sm text-slate-400">
                 Daily completion rate for tasks scheduled on each day.
               </p>
@@ -254,7 +300,8 @@ export default function StudyAnalyticsPage() {
                         className="w-full rounded-t-md bg-cyan-400 transition-all"
                         style={{
                           height: `${day.percentage}%`,
-                          minHeight: day.percentage > 0 ? "4px" : "0px",
+                          minHeight:
+                            day.percentage > 0 ? "4px" : "0px",
                         }}
                         title={`${day.completed} of ${day.total} completed`}
                       />
@@ -300,7 +347,9 @@ function StatCard({
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
       <p className="text-sm text-slate-400">{title}</p>
-      <p className="mt-3 text-3xl font-bold text-cyan-400">{value}</p>
+      <p className="mt-3 text-3xl font-bold text-cyan-400">
+        {value}
+      </p>
     </div>
   );
 }
